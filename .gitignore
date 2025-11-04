@@ -1,0 +1,6 @@
+.env
+safe
+.venv
+.idea
+data
+__pycache__
