@@ -8,7 +8,6 @@ services:
       - ./code/main.py:/app/main.py
       - ./code/textutil.py:/app/textutil.py
       - ./code/database.py:/app/database.py
-      - ./code/data_processing.py:/app/data_processing.py
     environment:
       - BOT_TOKEN=${BOT_TOKEN}
     env_file:

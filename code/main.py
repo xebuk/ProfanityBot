@@ -29,6 +29,12 @@ if not BOT_TOKEN:
     logger.error("BOT_TOKEN не установлен! Проверьте .env файл")
     exit(1)
 
+DEBUG = getenv("DEBUG")
+if not BOT_TOKEN:
+    DEBUG = False
+else:
+    DEBUG = (DEBUG == "true")
+
 scheduler = scheduler(time, sleep)
 
 warnings: set[str] = set()
@@ -77,12 +83,14 @@ async def reply_to(text: str, letter: Message):
         )
 
 async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    text = update.message.text
-    await reply_to(text, update.message)
+    if update.message is not None:
+        text = update.message.text
+        await reply_to(text, update.message)
 
 async def handle_caption(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    text = update.message.caption
-    await reply_to(text, update.message)
+    if update.message is not None:
+        text = update.message.caption
+        await reply_to(text, update.message)
 
 async def handle_bot_join_or_leave(update: Update, context: ContextTypes.DEFAULT_TYPE):
     chat_member = update.my_chat_member
@@ -90,16 +98,16 @@ async def handle_bot_join_or_leave(update: Update, context: ContextTypes.DEFAULT
 
     if new_status in {"member", "administrator"}:
         database.add_new_chat(update.message.chat_id)
-        logger.info("Добавление чата в базу данных произведено успешно.")
+        logger.info(f"Добавление чата {update.message.chat_id} в базу данных произведено успешно.")
     elif new_status in {"left", "kicked"}:
         database.deactivate_chat(update.message.chat_id)
-        logger.info("Пометка чата как неактивного произведена успешно.")
+        logger.info(f"Пометка чата {update.message.chat_id} как неактивного произведена успешно.")
 
 async def handle_other_join(update: Update, context: ContextTypes.DEFAULT_TYPE):
     database.add_or_update_name(
         update.message.chat_id, update.message.from_user.id, update.message.from_user.name
     )
-    logger.info("Добавление нового участника в таблицы чата произведено успешно.")
+    logger.info(f"Добавление нового участника в таблицы чата {update.message.chat_id} произведено успешно.")
 
 async def top_curse_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     message = "Список из ада: \n"

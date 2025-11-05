@@ -1,8 +1,5 @@
 import logging
 import joblib
-import pandas as pd
-
-from data_processing import extract_features_from_word
 
 logging.basicConfig(
     level=logging.INFO,
@@ -15,32 +12,38 @@ logging.basicConfig(
 
 logger = logging.getLogger("Text Management")
 
-class ProfanityClassifier:
-    def __init__(self):
-        self.model = None
-        self.load_model()
+def to_dense(x):
+    if hasattr(x, "toarray"):
+        return x.toarray()
+    return x
 
-    def load_model(self):
+class ProfanityClassifierPipeline:
+    def __init__(self):
+        self.pipeline = None
+        self.load_pipeline()
+
+    def load_pipeline(self):
         try:
-            self.model = joblib.load('./data/profanity_model.joblib')
-            logger.info("Модель классификации загружена")
+            import __main__
+            __main__.to_dense = to_dense
+            self.pipeline = joblib.load("./data/profanity_pipeline.joblib")
+            logger.info("Конвейер классификации загружен")
         except FileNotFoundError as e:
-            logger.warning("Модель классификации не найдена. Прекращение работы.")
+            logger.warning("Конвейер классификации не найден. Прекращение работы.")
             raise e
 
     def predict_profanity(self, word):
-        if self.model is None:
+        if self.pipeline is None:
             return False, 0.0
 
         try:
-            features = pd.DataFrame([extract_features_from_word(word)])
-            probability = self.model.predict_proba(features)[0][1]
+            probability = self.pipeline.predict_proba([word])[0][1]
             return True, probability
         except Exception as e:
             logger.error(f"Ошибка предсказания для '{word}': {e}")
             return False, 0.0
 
-detector = ProfanityClassifier()
+detector = ProfanityClassifierPipeline()
 russifier = "".maketrans({
     "a" : "а",
     "b" : "б",
