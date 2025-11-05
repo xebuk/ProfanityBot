@@ -1,45 +1,19 @@
-import re
 import logging
-
+import joblib
 import pandas as pd
 
-import joblib
+from data_processing import extract_features_from_word
 
 logging.basicConfig(
     level=logging.INFO,
     format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
     handlers=[
-        logging.FileHandler('data/log.txt'),
+        logging.FileHandler('./data/log.txt'),
         logging.StreamHandler()
     ]
 )
 
 logger = logging.getLogger("Text Management")
-
-vowels = "аеёиоуыэюя"
-consonants = "бвгджзйклмнпрстфхцчшщ"
-special_chars = "ъь"
-
-profanity_ngrams = ["бля", "ху", "пиз", "пез", "еб",
-                    "гонд", "ганд", "сук", "cуч", "пид",
-                    "блан", "своло", "убл", "мраз", "пед"]
-
-def extract_features(word):
-    features = {
-        "length": len(word),
-        "vowel_count": sum(word.count(c) for c in vowels),
-        "consonant_count": sum(word.count(c) for c in consonants),
-        "special_char_count": sum(word.count(c) for c in special_chars),
-        "has_repeating_chars": int(bool(re.search(r"(.)\1{2,}", word))),
-        "consonant_clusters": len(re.findall(rf"[{consonants}]{3,}", word)),
-        "vowel_clusters": len(re.findall(rf"[{vowels}]{3,}", word)),
-        "starts_with_consonant": int(word[0] in consonants) if word else 0,
-        "ends_with_vowel": int(word[-1] in vowels) if word else 0,
-        "ends_with_special_char": int(word[-1] in special_chars) if word else 0,
-        "contains_common_profanity_ngrams": int(any(ngram in word for ngram in profanity_ngrams))
-    }
-    return pd.DataFrame([features])
-
 
 class ProfanityClassifier:
     def __init__(self):
@@ -48,7 +22,7 @@ class ProfanityClassifier:
 
     def load_model(self):
         try:
-            self.model = joblib.load('data/profanity_model.joblib')
+            self.model = joblib.load('./data/profanity_model.joblib')
             logger.info("Модель классификации загружена")
         except FileNotFoundError as e:
             logger.warning("Модель классификации не найдена. Прекращение работы.")
@@ -59,7 +33,7 @@ class ProfanityClassifier:
             return False, 0.0
 
         try:
-            features = extract_features(word)
+            features = pd.DataFrame([extract_features_from_word(word)])
             probability = self.model.predict_proba(features)[0][1]
             return True, probability
         except Exception as e:
@@ -126,7 +100,7 @@ def analyse_message(user, text) -> tuple[int, set[str]]:
             if probability >= 0.69:
                 curses += 1
                 flag_shot = True
-            if probability >= 0.3:
+            elif probability >= 0.3:
                 warnings.add(word)
                 flag_warning = True
 

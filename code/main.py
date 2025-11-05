@@ -15,7 +15,7 @@ logging.basicConfig(
     level=logging.INFO,
     format='%(asctime)s - %(levelname)s - %(name)s - %(message)s',
     handlers=[
-        logging.FileHandler('data/log.txt'),
+        logging.FileHandler('./data/log.txt'),
         logging.StreamHandler()
     ]
 )
@@ -35,17 +35,17 @@ warnings: set[str] = set()
 database = DatabaseManager()
 
 def on_timer(sc):
-    with open("data/words_with_warnings.txt", "a", encoding="utf8") as load_warnings:
+    with open("./data/words_with_warnings.txt", "a", encoding="utf8") as load_warnings:
         for word in warnings:
             load_warnings.write(f"{word}\n")
     warnings.clear()
 
     logger.info("Слова с предупреждениями были выгружены")
-    sc.enter(3600, 1, on_timer, (sc,))
+    sc.enter(600, 1, on_timer, (sc,))
 
 
 def shutdown():
-    with open("data/words_with_warnings.txt", "a", encoding="utf8") as load_warnings:
+    with open("./data/words_with_warnings.txt", "a", encoding="utf8") as load_warnings:
         for word in warnings:
             load_warnings.write(f"{word}\n")
 
@@ -88,10 +88,10 @@ async def handle_bot_join_or_leave(update: Update, context: ContextTypes.DEFAULT
     chat_member = update.my_chat_member
     new_status = chat_member.new_chat_member.status
 
-    if new_status in {'member', 'administrator'}:
+    if new_status in {"member", "administrator"}:
         database.add_new_chat(update.message.chat_id)
         logger.info("Добавление чата в базу данных произведено успешно.")
-    elif new_status in {'left', 'kicked'}:
+    elif new_status in {"left", "kicked"}:
         database.deactivate_chat(update.message.chat_id)
         logger.info("Пометка чата как неактивного произведена успешно.")
 
@@ -120,8 +120,15 @@ async def top_curse_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await update.message.reply_text(message)
 
 async def reset_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    database.reset_chat(update.message.chat_id)
-    logger.info("Сброс данных произведен успешно.")
+    chat_member = await context.bot.get_chat_member(
+        update.message.chat_id, update.message.from_user.id
+    )
+
+    if chat_member.status in {"administrator", "owner"}:
+        database.reset_chat(update.message.chat_id)
+        logger.info("Сброс данных произведен успешно.")
+    else:
+        logger.info(f"У запрашивающего недостаточно прав - {update.message.from_user.name} - {update.chat_member.old_chat_member.status}")
 
 
 def main():
@@ -130,7 +137,7 @@ def main():
     app = Application.builder().token(BOT_TOKEN).build()
 
     app.add_handler(CommandHandler("curse", top_curse_command))
-    #app.add_handler(CommandHandler("reset", reset_command))
+    app.add_handler(CommandHandler("reset", reset_command))
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND & ~filters.CAPTION, handle_message))
     app.add_handler(MessageHandler(filters.CAPTION & ~filters.COMMAND, handle_caption))
 
