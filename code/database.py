@@ -90,6 +90,19 @@ class DatabaseManager:
         finally:
             return cursor.fetchone()
 
+    def get_user_names(self, chat_id: int):
+        try:
+            with sqlite3.connect(self.db_path) as conn:
+                cursor = conn.cursor()
+                safe_chat = safe_chat_id(chat_id)
+
+                cursor.execute(f"select user_name from data_{safe_chat}")
+        except Exception as e:
+            logging.error(f"Ошибка получения набора имен пользователей чата: {e}")
+            self.add_new_chat(chat_id)
+        finally:
+            return cursor.fetchall()
+
     def get_user_curses(self, chat_id: int, user_id: int):
         try:
             with sqlite3.connect(self.db_path) as conn:
@@ -102,6 +115,19 @@ class DatabaseManager:
             self.add_new_chat(chat_id)
         finally:
             return cursor.fetchone()
+
+    def get_curses(self, chat_id: int):
+        try:
+            with sqlite3.connect(self.db_path) as conn:
+                cursor = conn.cursor()
+                safe_chat = safe_chat_id(chat_id)
+
+                cursor.execute(f"select user_id, user_name, curses from data_{safe_chat} order by curses desc")
+        except Exception as e:
+            logging.error(f"Ошибка при выгрузке данных о счетчиках мата: {e}")
+            self.add_new_chat(chat_id)
+        finally:
+            return cursor.fetchall()
 
     def add_or_update_name(self, chat_id: int, user_id: int, new_name: str):
         try:
@@ -148,19 +174,6 @@ class DatabaseManager:
         except Exception as e:
             logging.error(f"Ошибка при увеличении счётчика мата: {e}")
             self.add_new_chat(chat_id)
-
-    def get_curses(self, chat_id: int):
-        try:
-            with sqlite3.connect(self.db_path) as conn:
-                cursor = conn.cursor()
-                safe_chat = safe_chat_id(chat_id)
-
-                cursor.execute(f"select user_id, user_name, curses from data_{safe_chat} order by curses desc")
-        except Exception as e:
-            logging.error(f"Ошибка при выгрузке данных о счетчиках мата: {e}")
-            self.add_new_chat(chat_id)
-        finally:
-            return cursor.fetchall()
 
     def reset_chat(self, chat_id: int):
         try:

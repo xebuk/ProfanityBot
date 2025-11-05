@@ -138,6 +138,13 @@ async def reset_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     else:
         logger.info(f"У запрашивающего недостаточно прав - {update.message.from_user.name} - {update.chat_member.old_chat_member.status}")
 
+async def all_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    message = "ВНИМАНИЕ!\n"
+    all_user_names = sorted(database.get_user_names(update.message.chat_id), key=lambda x: x.lower())
+    for i in all_user_names:
+        message += f"{i[0]}\n"
+    message += "Спасибо за внимание."
+    await update.message.reply_text(message)
 
 def main():
     scheduler.enter(5, 1, on_timer, (scheduler,))
@@ -146,6 +153,7 @@ def main():
 
     app.add_handler(CommandHandler("curse", top_curse_command))
     app.add_handler(CommandHandler("reset", reset_command))
+    app.add_handler(CommandHandler("all", all_command))
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND & ~filters.CAPTION, handle_message))
     app.add_handler(MessageHandler(filters.CAPTION & ~filters.COMMAND, handle_caption))
 
