@@ -4,10 +4,19 @@ services:
     container_name: telegram-bot
     restart: unless-stopped
     volumes:
-      - ./data:/app/data
-      - ./code/main.py:/app/main.py
-      - ./code/textutil.py:/app/textutil.py
-      - ./code/database.py:/app/database.py
+      - ./media:/app/media
+      - ./data/chats_with_curse.db:/app/data/chats_with_curse.db
+      - ./data/curses.txt:/app/data/curses.txt
+      - ./data/log.txt:/app/data/log.txt
+      - ./data/normal_words.txt:/app/data/normal_words.txt
+      - ./data/profanity_pipeline.joblib:/app/data/profanity_pipeline.joblib
+      - ./data/large-v3.pt:/app/data/large-v3.pt
+      - ./data/warnings.txt:/app/data/warnings.txt
+      - ./core/main.py:/app/main.py
+      - ./core/logs.py:/app/logs.py
+      - ./core/textutil.py:/app/textutil.py
+      - ./core/database.py:/app/database.py
+      - ./core/speech_recognition.py:/app/speech_recognition.py
     environment:
       - BOT_TOKEN=${BOT_TOKEN}
     env_file:

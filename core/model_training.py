@@ -1,17 +1,15 @@
 import joblib
 import pandas as pd
 
+from imblearn.over_sampling import SMOTE
+from imblearn.pipeline import Pipeline as ImbPipeline
+
 from sklearn.feature_extraction.text import TfidfVectorizer
 from sklearn.preprocessing import FunctionTransformer
 from sklearn.ensemble import HistGradientBoostingClassifier
 
-from sklearn.pipeline import Pipeline
-
 from sklearn.model_selection import train_test_split
 from sklearn.metrics import classification_report
-
-tr1 = "".maketrans({"е" : "ё"})
-tr2 = "".maketrans({"е" : "я"})
 
 def to_dense(x):
     if hasattr(x, "toarray"):
@@ -19,19 +17,25 @@ def to_dense(x):
     return x
 
 def fit_pipeline():
-    profane_words = open("../safe/Тёмная сторона.txt", "r", encoding="utf8")
+    profane_words = open("../safe/Тёмная сторона - nx.txt", "r", encoding="utf8")
+    profane_words_addendum = open("../safe/Тёмная сторона - Личный набор.txt", "r", encoding="utf8")
     normal_words = open("../safe/Великий Могучий - nx.txt", "r", encoding="utf8")
+    normal_words_addendum = open("../safe/Великий Могучий - Личный Набор.txt", "r", encoding="utf8")
 
     data = list()
     for word in profane_words:
         data.append({"word": word.strip(), "label": 1})
-        data.append({"word": word.translate(tr1).strip(), "label": 1})
-        data.append({"word": word.translate(tr2).strip(), "label": 1})
+    for word in set(profane_words_addendum):
+        data.append({"word": word.strip(), "label": 1})
     for word in normal_words:
+        data.append({"word": word.strip(), "label": 0})
+    for word in set(normal_words_addendum):
         data.append({"word": word.strip(), "label": 0})
 
     profane_words.close()
+    profane_words_addendum.close()
     normal_words.close()
+    normal_words_addendum.close()
 
     df = pd.DataFrame(data)
     X = df['word'].values
@@ -41,41 +45,49 @@ def fit_pipeline():
     print(f"Мат: {sum(y)}, Не мат: {len(y) - sum(y)}")
 
     X_train, X_test, y_train, y_test = train_test_split(
-        X, y, test_size=0.2, random_state=42
+        X, y,
+        test_size=0.2,
+        random_state=69420
     )
 
-    pipeline = Pipeline([
+    pipeline = ImbPipeline([
         ("tfidf", TfidfVectorizer(
             analyzer="char",
-            ngram_range=(2, 4),
-            max_features=10000,
-            lowercase=True,
-            min_df=2,
+            ngram_range=(2, 5),
+            max_features=53000,
             max_df=0.9,
+            min_df=1,
+            lowercase=True,
             sublinear_tf=True
         )),
         ('transformer', FunctionTransformer(
             to_dense,
             accept_sparse=True
         )),
+        ('smote', SMOTE(
+            random_state=69420,
+            sampling_strategy="auto",
+            k_neighbors=15
+        )),
         ("classifier", HistGradientBoostingClassifier(
-            max_iter=200,
+            max_iter=400,
             learning_rate=0.1,
-            max_depth=10,
             class_weight='balanced',
-            random_state=42
+            random_state=69420
         ))
     ])
 
     pipeline.fit(X_train, y_train)
     y_pred = pipeline.predict(X_test)
     print("\nРезультаты классификации:")
-    print(classification_report(y_test, y_pred))
+    report = classification_report(y_test, y_pred)
+    print(report)
+    with open("../data/profanity_pipeline_data_new.txt", "w", encoding="utf8") as new_pipeline:
+        new_pipeline.write(report)
 
     # Сохранение модели
-    joblib.dump(pipeline, "../data/profanity_pipeline.joblib")
-    print("Конвейер сохранен в data/profanity_pipeline.joblib")
-
+    joblib.dump(pipeline, "../data/profanity_pipeline_new.joblib")
+    print("Конвейер сохранен в data/profanity_pipeline_new.joblib")
 
 if __name__ == "__main__":
     fit_pipeline()
