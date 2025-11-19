@@ -1,28 +1,40 @@
+from python:3.11-slim as builder
+
+run apt-get update && apt-get install -y \
+    build-essential nasm yasm pkg-config curl
+run curl -fsSL https://ffmpeg.org/releases/ffmpeg-8.0.tar.gz | tar -xz && \
+    cd ffmpeg-8.0 && \
+    ./configure \
+        --prefix=/opt/ffmpeg \
+        --disable-everything \
+        --enable-demuxer=mov,mp4,matroska,avi,ogg \
+        --enable-decoder=aac,mp3,ac3,pcm_s16le,pcm_f32le,vorbis,opus \
+        --enable-muxer=wav \
+        --enable-encoder=pcm_s16le \
+        --enable-protocol=file,pipe \
+        --enable-filter=aresample,anull \
+        --enable-parser=aac,mpegaudio,vorbis,opus \
+        --disable-doc \
+        --enable-small \
+        --enable-static \
+        --disable-shared \
+    && make -j$(nproc) \
+    && make install
+
 from python:3.11-slim
+
+copy --from=builder /opt/ffmpeg /usr/local
+run ldconfig
 
 workdir /app
 
-copy requirements.txt .
-run pip install --no-cache-dir -r requirements.txt
-run apt-get update && apt-get install -y ffmpeg
+run mkdir -p data media media_nightly core/IO core/data_access core/analysis wheelhouse
+copy . .
 
-run mkdir -p data
-run mkdir -p media
+run --mount=type=cache,target=/root/.cache/pip \
+    pip install --no-cache-dir --find-links wheelhouse \
+    --no-index -r requirements.txt \
+    && rm -rf wheelhouse \
+    && rm requirements.txt
 
-copy core/main.py .
-copy core/logs.py .
-copy core/database.py .
-copy core/speech_recognition.py .
-copy core/textutil.py .
-
-copy media media
-
-copy data/chats_with_curse.db data
-copy data/curses.txt data
-copy data/log.txt data
-copy data/normal_words.txt data
-copy data/profanity_pipeline.joblib data
-copy data/large-v3.pt data
-copy data/warnings.txt data
-
-cmd ["python", "main.py"]
+cmd ["python", "core/IO/main.py"]

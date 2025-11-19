@@ -13,10 +13,14 @@ logging.basicConfig(
 logging.getLogger("httpx").setLevel(logging.FATAL)
 logging.getLogger("httpcore").setLevel(logging.FATAL)
 
+config_log = logging.getLogger("Config")
 main_body_log = logging.getLogger("Main Body")
+commands_log = logging.getLogger("Command")
+functions_log = logging.getLogger("Function")
 text_log = logging.getLogger("Text Management")
 database_log = logging.getLogger("Database")
 speech_to_text_log = logging.getLogger("STT")
+image_to_text_log = logging.getLogger("ITT")
 
 curses = open("./data/curses.txt", "a", encoding="utf8")
 warnings = open("./data/warnings.txt", "a", encoding="utf8")

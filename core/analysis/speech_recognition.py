@@ -6,9 +6,9 @@ from typing import BinaryIO
 import numpy as np
 from whisper import Whisper, load_model, transcribe
 
-from logs import speech_to_text_log
+from core.data_access.logs import speech_to_text_log
 
-model: Whisper = load_model("./data/large-v3.pt")
+model: Whisper = load_model("./data/whisperer.pt")
 speech_to_text_log.info("Модель распознавания речи была загружена")
 
 def convert_stream_to_data(stream: BinaryIO):
@@ -44,7 +44,7 @@ def convert_stream_to_data(stream: BinaryIO):
 
     return flag, results
 
-def get_text_from_stream(stream: BinaryIO) -> str:
+async def get_text_from_audio_stream(stream: BinaryIO) -> str:
     success, result = convert_stream_to_data(stream)
     if not success:
         return ""

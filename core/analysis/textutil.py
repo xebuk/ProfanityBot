@@ -1,7 +1,7 @@
 import re
 import joblib
 
-from logs import text_log, curses, warnings, normal_words
+from core.data_access.logs import text_log, curses, warnings, normal_words
 
 def to_dense(x):
     if hasattr(x, "toarray"):
