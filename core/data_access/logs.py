@@ -12,8 +12,11 @@ logging.basicConfig(
 
 logging.getLogger("httpx").setLevel(logging.FATAL)
 logging.getLogger("httpcore").setLevel(logging.FATAL)
+logging.getLogger("apscheduler.scheduler").setLevel(logging.FATAL)
+logging.getLogger("apscheduler.executors.default").setLevel(logging.FATAL)
 
 config_log = logging.getLogger("Config")
+logger_log = logging.getLogger("Logging")
 main_body_log = logging.getLogger("Main Body")
 commands_log = logging.getLogger("Command")
 functions_log = logging.getLogger("Function")
@@ -28,6 +31,7 @@ normal_words = open("./data/normal_words.txt", "a", encoding="utf8")
 
 @register
 def shutdown_file_logging():
+    logger_log.info("Запустил функцию выхода")
     curses.close()
     warnings.close()
     normal_words.close()

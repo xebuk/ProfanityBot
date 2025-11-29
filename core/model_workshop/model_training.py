@@ -56,7 +56,7 @@ def fit_pipeline():
         ("tfidf", TfidfVectorizer(
             analyzer="char",
             ngram_range=(2, 5),
-            max_features=53000,
+            max_features=50000,
             max_df=0.8,
             min_df=0.0,
             lowercase=True,
@@ -74,7 +74,7 @@ def fit_pipeline():
         ("classifier", HistGradientBoostingClassifier(
             max_iter=400,
             learning_rate=0.1,
-            max_depth=400,
+            max_depth=600,
             class_weight='balanced',
             random_state=69420
         ))

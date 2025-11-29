@@ -1,23 +1,54 @@
-from telegram import BotCommandScopeAllChatAdministrators, BotCommandScopeAllGroupChats
-from telegram.ext import Application, MessageHandler, filters, ContextTypes, \
-    CommandHandler, ChatMemberHandler, JobQueue
+import sys
+import signal
+from queue import Empty
+
+from telegram import BotCommandScopeAllChatAdministrators, \
+    BotCommandScopeAllGroupChats, BotCommand
+from telegram.ext import Application, ContextTypes, JobQueue, CommandHandler, \
+    MessageHandler, ChatMemberHandler, CallbackQueryHandler, filters
 
 from random import randint
 
-from core.data_access.config import BOT_TOKEN
-from core.IO.handle_commands import group_chat_commands, group_admins_commands, \
-    top_curse_command, top_troll_command, change_curse_command, reset_command, \
-    all_command, set_donation_link, donation_link_command, \
-    permit_to_random_send_command, set_random_send_message, permit_to_troll_command
-from core.IO.handle_functions import handle_message, handle_caption, \
-    handle_voice_message, handle_video_note, handle_other_join
+import core.IO.handle_commands
+
+from core.IO.handle_functions import reply_to, handle_other_join, \
+    handle_video_note, handle_voice_message, handle_caption, handle_message, \
+    media_queue, media_send
+from core.analysis.messages import Messages
+from core.analysis.speech_recognition import text_queue
+from core.data_access.config import BOT_TOKEN, SHUTDOWN_SENTINEL
 from core.data_access.database import access_point, DataType
 from core.data_access.logs import main_body_log
+
+group_chat_commands = list()
+group_admins_commands = list()
+handlers_list = list()
+
+for name in vars(core.IO.handle_commands):
+    func = getattr(core.IO.handle_commands, name)
+    if hasattr(func, "_handler_type"):
+        match getattr(func, "_handler_type"):
+            case "command":
+                command = name.replace('_command', '')
+                handlers_list.append(CommandHandler(command, func))
+                if func.level < 2: group_chat_commands.append(BotCommand(command, func.desc))
+                if func.level < 3: group_admins_commands.append(BotCommand(command, func.desc))
+            case "message": handlers_list.append(MessageHandler(func.fil, func))
+            case "chat_member": handlers_list.append(ChatMemberHandler(func, func.chat_member))
+            case "callback_query": handlers_list.append(CallbackQueryHandler(func, func.cond))
+
+def graceful_exit(signum, frame):
+    main_body_log.info("Активировано завершение работы")
+    sys.exit(0)
+
+signal.signal(signal.SIGTERM, graceful_exit)
+signal.signal(signal.SIGINT, graceful_exit)
+signal.signal(signal.SIGQUIT, graceful_exit)
 
 async def random_send(context: ContextTypes.DEFAULT_TYPE):
     chat_ids = access_point.get_data_from_main_table(
         [DataType.CHAT_ID, DataType.RANDOM_SEND_MESSAGE],
-        [DataType.IS_PERMITTED_TO_RANDOM_SEND],
+        [DataType.RANDOM_SEND_PERMIT],
         None,
         False, False,
         1
@@ -25,11 +56,83 @@ async def random_send(context: ContextTypes.DEFAULT_TYPE):
     for chat_id, message in chat_ids:
         try:
             await context.bot.send_message(chat_id=chat_id, text=message, disable_notification=True)
-            main_body_log.info(f"Случайное сообщение было отправлено в {chat_id}")
+            main_body_log.info(Messages.RANDOM_SEND_LOGGING_SUCCESS.format(chat_id))
         except Exception as e:
-            main_body_log.info(f"Случайное сообщение не было отправлено в {chat_id}: {e}")
+            main_body_log.info(Messages.RANDOM_SEND_LOGGING_FAILURE.format(chat_id, e))
 
     app.job_queue.run_once(random_send, randint(3600, 21600))
+
+async def regular_top(context: ContextTypes.DEFAULT_TYPE):
+    chat_ids = access_point.get_data_from_main_table(
+        [DataType.CHAT_ID],
+        [DataType.REGULAR_CURSE_UPDATE_PERMIT],
+        None,
+        False, False,
+        1
+    )
+    for chat_id in chat_ids:
+        await context.bot.send_message(chat_id=chat_id[0], text=Messages.REGULAR_TOP, disable_notification=True)
+        top = sorted(
+            access_point.get_data_from_chat(
+                chat_id[0],
+                [DataType.USER_ID, DataType.USER_NAME, DataType.CURSES_DELTA],
+                None,
+                [DataType.CURSES_DELTA], True,
+                False
+            ),
+            key=lambda x: (x[2], x[0])
+        )
+        if top[-1][2] == 0:
+            await context.bot.send_message(chat_id=chat_id[0], text=Messages.REGULAR_TOP_ALL_POLITE, disable_notification=True)
+            continue
+
+        await context.bot.send_message(chat_id=chat_id[0], text=Messages.REGULAR_TOP_ALL_TRAGEDY, disable_notification=True)
+        message = Messages.TOP_CURSE_REFRESH
+
+        index = 1
+        summ = 0
+        for i in range(len(top)):
+            if top[i][2] == 0:
+                continue
+            message += Messages.TOP_ENTRY.format(index, top[i][1], top[i][2])
+            summ += top[i][2]
+            index += 1
+
+            access_point.change_curses_userid(chat_id[0], top[i][0], top[i][2], None)
+        message += Messages.TOP_RESULT.format(summ)
+        await context.bot.send_message(chat_id=chat_id[0], text=message, disable_notification=True)
+        access_point.reset_curses_delta(chat_id[0])
+
+async def handle_audio_callback(context: ContextTypes.DEFAULT_TYPE):
+    try:
+        entry = text_queue.get(timeout=0.1)
+        if entry is SHUTDOWN_SENTINEL:
+            text_queue.shutdown()
+            return
+        await reply_to(*entry)
+    except Exception:
+        pass
+
+    job_queue.run_once(handle_audio_callback, 5)
+
+async def handle_media_callback(context: ContextTypes.DEFAULT_TYPE):
+    entry = None
+    try:
+        entry = media_queue.get(timeout=0.1)
+        if entry is SHUTDOWN_SENTINEL:
+            media_queue.shutdown()
+            return
+        file_ext, letter, file_path = entry
+
+        sent_message = await media_send[file_ext](letter, file_path)
+        if sent_message is None: raise Exception("Сообщение не было отправлено")
+    except Empty:
+        pass
+    except Exception:
+        if entry is not None:
+            media_queue.put(entry)
+
+    job_queue.run_once(handle_media_callback, 1)
 
 job_queue = JobQueue()
 
@@ -37,6 +140,9 @@ async def on_start(appl: Application):
     job_queue.set_application(appl)
     await job_queue.start()
     job_queue.run_once(random_send, randint(3600, 14400))
+    job_queue.run_repeating(regular_top, 7200)
+    job_queue.run_once(handle_audio_callback, 5)
+    job_queue.run_once(handle_media_callback, 1)
 
     await appl.bot.set_my_commands(
         group_chat_commands,
@@ -54,7 +160,7 @@ async def on_start(appl: Application):
         False, False
     )
     for chat_id in chat_ids:
-        await appl.bot.send_message(chat_id=chat_id[0], text="я проснулся", disable_notification=True)
+        await appl.bot.send_message(chat_id=chat_id[0], text=Messages.I_AWAKE, disable_notification=True)
 
 async def on_stop(appl: Application):
     chat_ids = access_point.get_data_from_main_table(
@@ -64,40 +170,25 @@ async def on_stop(appl: Application):
         False, False
     )
     for chat_id in chat_ids:
-        await appl.bot.send_message(chat_id=chat_id[0], text="я пошел спать", disable_notification=True)
+        await appl.bot.send_message(chat_id=chat_id[0], text=Messages.I_SLEEP, disable_notification=True)
 
 app = (
     Application.builder()
     .token(BOT_TOKEN)
-    .read_timeout(30)
-    .write_timeout(30)
-    .connect_timeout(30)
-    .pool_timeout(30)
     .post_init(on_start)
     .post_stop(on_stop)
     .build()
 )
 
-def main():
-    app.add_handler(CommandHandler("curse", top_curse_command))
-    app.add_handler(CommandHandler("change_curse", change_curse_command))
-    app.add_handler(CommandHandler("troll", top_troll_command))
-    app.add_handler(CommandHandler("reset", reset_command))
-    app.add_handler(CommandHandler("all", all_command))
-    app.add_handler(CommandHandler("set_donate", set_donation_link))
-    app.add_handler(CommandHandler("donate", donation_link_command))
-    app.add_handler(CommandHandler("random_send_permit", permit_to_random_send_command))
-    app.add_handler(CommandHandler("set_random_send_message", set_random_send_message))
-    app.add_handler(CommandHandler("trolling_permit", permit_to_troll_command))
+if __name__ == "__main__":
+    for handler in handlers_list:
+        app.add_handler(handler)
 
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND & ~filters.CAPTION, handle_message))
-    app.add_handler(MessageHandler(filters.CAPTION & ~filters.COMMAND, handle_caption)),
+    app.add_handler(MessageHandler(filters.CAPTION & ~filters.COMMAND, handle_caption))
     app.add_handler(MessageHandler(filters.VOICE, handle_voice_message))
     app.add_handler(MessageHandler(filters.VIDEO_NOTE, handle_video_note))
 
     app.add_handler(ChatMemberHandler(handle_other_join, ChatMemberHandler.CHAT_MEMBER))
 
     app.run_polling()
-
-if __name__ == "__main__":
-    main()

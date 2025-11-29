@@ -1,6 +1,6 @@
 import sqlite3
-import enum
-from typing import Any
+from enum import Enum
+from typing import Any, LiteralString
 from atexit import register
 
 from core.data_access.logs import database_log
@@ -11,21 +11,27 @@ def safe_chat_id(chat_id):
     else:
         return int("".join(c for c in str(chat_id) if c.isdigit()))
 
-class DataType(enum.Enum):
+class DataType(Enum):
     INSIDE_ID = ("chats", int, "inside_id")                                       # - число
     CHAT_ID = ("chats", int, "chat_id")                                           # - число
     IS_ACTIVE = ("chats", int, "is_active")                                       # - 0 или 1
     PRIVACY = ("chats", int, "privacy")                                           # - 0 или 1
     CHAT_NAME = ("chats", str, "chat_name")                                       # - текст
     DONATION_LINK = ("chats", str, "donation_link")                               # - текст
-    IS_PERMITTED_TO_RANDOM_SEND = ("chats", int, "is_permitted_to_random_send")   # - 0 или 1
+    RANDOM_SEND_PERMIT = ("chats", int, "random_send_permit")                     # - 0 или 1
     RANDOM_SEND_MESSAGE = ("chats", str, "random_send_message")                   # - текст
-    CAN_BE_TROLLED = ("chats", int, "can_be_trolled")                             # - 0 или 1
+    TROLLING_PERMIT = ("chats", int, "trolling_permit")                           # - 0 или 1
+    REGULAR_CURSE_UPDATE_PERMIT = ("chats", int, "regular_curse_update_permit")   # - 0 или 1
+    CURSE_THRESHOLD = ("chats", int, "curse_threshold")                           # - число
+    QUIET_MODE = ("chats", int, "quiet_mode")                                     # - 0 или 1
 
     USER_ID = ("data", int, "user_id")                                            # - число
     USER_NAME = ("data", str, "user_name")                                        # - текст
     CURSES = ("data", int, "curses")                                              # - число
+    CURSES_DELTA = ("data", int, "curses_delta")                                  # - число
     TROLLS = ("data", int, "trolls")                                              # - число
+    CURRENT_SHOTS = ("data", int, "current_shots")                                # - число
+    MAX_SHOTS = ("data", int, "max_shots")                                        # - число
 
     @property
     def table(self):
@@ -105,9 +111,12 @@ class DatabaseManager:
                 	privacy integer not null default 1,
                 	chat_name text default 'stub',
                 	donation_link text default 'stub',
-                	is_permitted_to_random_send	integer not null default 0,
+                	random_send_permit integer not null default 0,
                 	random_send_message text not null default 'stub',
-                	can_be_trolled integer not null default 0
+                	trolling_permit integer not null default 0,
+                	regular_curse_update_permit integer not null default 0,
+                	curse_threshold integer default 2,
+                	quiet_mode integer not null default 1
                 )
             """)
             self.conn.commit()
@@ -116,6 +125,7 @@ class DatabaseManager:
             raise e
 
     def shutdown(self):
+        database_log.info("Запустил функцию выхода")
         self.cursor.close()
         self.conn.close()
 
@@ -132,8 +142,8 @@ class DatabaseManager:
             checked_id = self.cursor.fetchone()
             if checked_id is None:
                 self.cursor.execute(
-                    "insert into chats (chat_id, privacy, is_active, is_permitted_to_random_send) values (?, ?, ?, ?)",
-                    (chat_id, 1, 1, 0)
+                    "insert into chats (chat_id) values (?)",
+                    (chat_id,)
                 )
                 self.conn.commit()
 
@@ -143,7 +153,10 @@ class DatabaseManager:
                         user_id integer unique primary key,
                         user_name text not null default 'stub',
                         curses integer not null default 0,
-                        trolls integer not null default 0
+                        curses_delta integer not null default 0,
+                        trolls integer not null default 0,
+                        current_shots integer not null default 0,
+                        max_shots integer not null default 0
                     )
                 """)
             else:
@@ -166,17 +179,16 @@ class DatabaseManager:
         except Exception as e:
             database_log.error(f"Ошибка установки чата как неактивного: {e}")
             self.cursor.execute(
-                "insert into chats (chat_id, is_active) values (?, ?)",
-                (chat_id, 0)
+                "insert into chats (chat_id) values (?)",
+                (chat_id,)
             )
             self.conn.commit()
 
-    def reset_chat(self, chat_id: int):
+    def reset_chat(self, chat_id: int, what: LiteralString):
         try:
             inside_id = self.get_chat(chat_id)
 
-            self.cursor.execute(f"update data_{inside_id} set curses = 0")
-            self.cursor.execute(f"update data_{inside_id} set trolls = 0")
+            self.cursor.execute(f"update data_{inside_id} set {what} = 0")
             self.conn.commit()
         except Exception as e:
             database_log.error(f"Ошибка при попытке сброса состояния чата: {e}")
@@ -304,19 +316,20 @@ class DatabaseManager:
             database_log.error(f"Ошибка в изменении имени пользователя: {e}")
             self.add_new_chat(chat_id)
 
-    def change_curses_userid(self, chat_id: int, user_id: int, curses: int, user_name: str | None):
+    def change_curses_userid(self, chat_id: int, user_id: int, curses: int, user_name: str | None, delta=False):
         try:
             inside_id = self.get_chat(chat_id)
+            curse_to_edit = "curses_delta" if delta else "curses"
 
             if user_name is None:
                 self.cursor.execute(f"""
-                    insert into data_{inside_id} (user_id, curses) values (?, ?)
-                    on conflict (user_id) do update set curses = curses + ?
+                    insert into data_{inside_id} (user_id, {curse_to_edit}) values (?, ?)
+                    on conflict (user_id) do update set {curse_to_edit} = {curse_to_edit} + ?
                 """, (user_id, curses, curses))
             else:
                 self.cursor.execute(f"""
-                    insert into data_{inside_id} (user_id, user_name, curses) values (?, ?, ?)
-                    on conflict (user_id) do update set curses = curses + ?, user_name = ?
+                    insert into data_{inside_id} (user_id, user_name, {curse_to_edit}) values (?, ?, ?)
+                    on conflict (user_id) do update set {curse_to_edit} = {curse_to_edit} + ?, user_name = ?
                 """, (user_id, user_name, curses, curses, user_name))
 
             self.conn.commit()
@@ -335,7 +348,7 @@ class DatabaseManager:
             self.conn.commit()
             return True
         except Exception as e:
-            database_log.error(f"Ошибка при увеличении счётчика мата: {e}")
+            database_log.error(f"Ошибка при увеличении счётчика мата через user_name: {e}")
             self.add_new_chat(chat_id)
             return False
 
@@ -359,15 +372,48 @@ class DatabaseManager:
             database_log.error(f"Ошибка при увеличении счётчика мата через user_id: {e}")
             self.add_new_chat(chat_id)
 
+    def change_shots(self, chat_id: int, user_id: int, got_shot: bool):
+        try:
+            inside_id = self.get_chat(chat_id)
+
+            if not got_shot:
+                self.cursor.execute(
+                    f"update data_{inside_id} set current_shots = current_shots + 1 where user_id = ?",
+                    (user_id,)
+                )
+                self.cursor.execute(
+                    f"update data_{inside_id} set max_shots = current_shots where user_id = ? and current_shots > max_shots",
+                    (user_id,)
+                )
+            else:
+                self.cursor.execute(
+                    f"update data_{inside_id} set current_shots = 0 where user_id = ?",
+                    (user_id,)
+                )
+
+            self.conn.commit()
+        except Exception as e:
+            database_log.error(f"Ошибка при изменении счётчика выстрелов: {e}")
+            self.add_new_chat(chat_id)
+
+    def reset_curses_delta(self, chat_id: int):
+        try:
+            inside_id = self.get_chat(chat_id)
+            self.cursor.execute(f"update data_{inside_id} set curses_delta = 0")
+            self.conn.commit()
+        except Exception as e:
+            database_log.error(f"Ошибка при сбросе дельты счетчика мата: {e}")
+            self.add_new_chat(chat_id)
+
     def change_random_send_status(self, chat_id: int):
         try:
             inside_id = self.get_chat(chat_id)
 
             self.cursor.execute(
-                "update chats set is_permitted_to_random_send = not is_permitted_to_random_send where inside_id = ? returning is_permitted_to_random_send",
+                "update chats set random_send_permit = not random_send_permit where inside_id = ? returning random_send_permit",
                 (inside_id,)
             )
-            permit = self.cursor.fetchone()[0] == 1
+            permit = self.cursor.fetchone()[0]
 
             self.conn.commit()
             return True, permit
@@ -381,15 +427,32 @@ class DatabaseManager:
             inside_id = self.get_chat(chat_id)
 
             self.cursor.execute(
-                "update chats set can_be_trolled = not can_be_trolled where inside_id = ? returning can_be_trolled",
+                "update chats set trolling_permit = not trolling_permit where inside_id = ? returning trolling_permit",
                 (inside_id,)
             )
-            permit = self.cursor.fetchone()[0] == 1
+            permit = self.cursor.fetchone()[0]
 
             self.conn.commit()
             return True, permit
         except Exception as e:
             database_log.error(f"Ошибка при попытке изменения статуса троллинга для чата: {e}")
+            self.add_new_chat(chat_id)
+            return False, 0
+
+    def change_regular_curse_update_status(self, chat_id: int):
+        try:
+            inside_id = self.get_chat(chat_id)
+
+            self.cursor.execute(
+                "update chats set regular_curse_update_permit = not regular_curse_update_permit where inside_id = ? returning regular_curse_update_permit",
+                (inside_id,)
+            )
+            permit = self.cursor.fetchone()[0]
+
+            self.conn.commit()
+            return True, permit
+        except Exception as e:
+            database_log.error(f"Ошибка при попытке изменения статуса регулярного отчета по обсценной лексике для чата: {e}")
             self.add_new_chat(chat_id)
             return False, 0
 

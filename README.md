@@ -45,6 +45,7 @@
 ProfanityBot/
 ├── core/
 │   ├── analysis/
+│   │   ├── messages.py
 │   │   ├── speech_recognition.py
 │   │   └── textutil.py
 │   ├── data_access/
@@ -63,7 +64,6 @@ ProfanityBot/
 ├── <span style="color:yellow">media</span>
 ├── <span style="color:yellow">media_nightly</span>
 ├── <span style="color:yellow">safe</span>
-├── <span style="color:yellow">wheel</span><span style="color:cyan">house</span>
 ├── <span style="color:cyan">.dockerignore</span>
 ├── <span style="color:red">.e</span><span style="color:cyan">nv</span>
 ├── <span style="color:orange">.gitignore</span>
@@ -88,4 +88,3 @@ ProfanityBot/
 - ***whisper*** - хранилище для моделей OpenAI Whisper для конвертации аудио в текст. Разворачиваются локально, модель, которая используется ботом хранится в data под названием whisperer.pt.
 - ***media*** и ***media_nightly*** - хранилище для медиа, которые может отправлять бот.
 - ***safe*** - данные для обучения profanity_pipeline. Используются только открытые источники и логи работы бота (В логи идут только сообщения со специального чата. У остальных чатов автоматически установлена настройка приватности, которая не дает попадать сообщениям в логи, и её может изменить только владелец бота.)
-- ***wheelhouse*** - файл для хранения результатов pip wheel -r requirements.txt. Используется только для ускорения сборки контейнера в Docker.
