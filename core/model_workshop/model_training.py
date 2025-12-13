@@ -1,10 +1,12 @@
-from joblib import dump
+import numpy as np
+from joblib import dump, load
 from pandas import DataFrame
 
 from imblearn.over_sampling import SMOTE
 from imblearn.pipeline import Pipeline as ImbPipeline
 
 from sklearn.feature_extraction.text import TfidfVectorizer
+from sklearn.feature_selection import SelectKBest, chi2
 from sklearn.preprocessing import FunctionTransformer
 from sklearn.ensemble import HistGradientBoostingClassifier
 
@@ -15,8 +17,8 @@ from whisper import load_model, available_models
 
 def to_dense(x):
     if hasattr(x, "toarray"):
-        return x.toarray()
-    return x
+        return x.toarray().astype(np.float16)
+    return x.astype(np.float16)
 
 def fit_pipeline():
     profane_words = open("../../safe/Тёмная сторона - nx.txt", "r", encoding="utf8")
@@ -41,7 +43,7 @@ def fit_pipeline():
 
     df = DataFrame(data)
     X = df['word'].values
-    y = df['label'].values
+    y = df['label'].values.astype(np.uint16)
 
     print(f"Размер данных: {X.shape}")
     print(f"Мат: {sum(y)}, Не мат: {len(y) - sum(y)}")
@@ -54,27 +56,32 @@ def fit_pipeline():
 
     pipeline = ImbPipeline([
         ("tfidf", TfidfVectorizer(
-            analyzer="char",
+            dtype=np.float32,
+            analyzer="char_wb",
             ngram_range=(2, 5),
-            max_features=50000,
-            max_df=0.8,
-            min_df=0.0,
+            max_df=1.,
+            min_df=0.,
             lowercase=True,
             sublinear_tf=True
+        )),
+        ("feature_filter", SelectKBest(
+            chi2,
+            k=50000
+        )),
+        ('smote', SMOTE(
+            random_state=69420,
+            sampling_strategy="auto",
+            k_neighbors=3
         )),
         ('transformer', FunctionTransformer(
             to_dense,
             accept_sparse=True
         )),
-        ('smote', SMOTE(
-            random_state=69420,
-            sampling_strategy="auto",
-            k_neighbors=7
-        )),
         ("classifier", HistGradientBoostingClassifier(
-            max_iter=400,
+            max_iter=600,
             learning_rate=0.1,
-            max_depth=600,
+            max_depth=50,
+            max_bins=128,
             class_weight='balanced',
             random_state=69420
         ))
@@ -100,6 +107,21 @@ def change_whisper_model():
     model = input()
     if model in available_model_list:
         load_model(model, download_root="whisper")
+
+def test_model():
+    import __main__
+    __main__.to_dense = to_dense
+
+    pipeline = load("profanity_pipeline/profanity_pipeline_new.joblib")
+    print("Загрузка модели прошла успешно")
+    while True:
+        inp = input().split()
+        if inp == "-":
+            print("Вызван выход")
+            break
+        print(inp)
+        probability = pipeline.predict_proba(inp)[0][1]
+        print(f"{inp} - {probability}")
 
 if __name__ == "__main__":
     fit_pipeline()

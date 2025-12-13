@@ -1,12 +1,13 @@
-import re
-import joblib
+from re import sub, split
+from joblib import load
+from numpy import float32
 
-from core.data_access.logs import text_log, curses, warnings, normal_words
+from core.data_access import curses, warnings, normal_words, text_log
 
 def to_dense(x):
     if hasattr(x, "toarray"):
-        return x.toarray()
-    return x
+        return x.toarray().astype(float32)
+    return x.astype(float32)
 
 class ProfanityClassifierPipeline:
     def __init__(self):
@@ -18,10 +19,10 @@ class ProfanityClassifierPipeline:
             import __main__
             __main__.to_dense = to_dense
 
-            self.pipeline = joblib.load("./data/profanity_pipeline.joblib")
+            self.pipeline = load("./data/profanity_pipeline.joblib")
             text_log.info("Конвейер классификации загружен")
         except FileNotFoundError as e:
-            text_log.warning("Конвейер классификации не найден. Прекращение работы.")
+            text_log.error("Конвейер классификации не найден. Прекращение работы.")
             raise e
 
     def predict_profanity(self, word):
@@ -73,8 +74,8 @@ russifier2 = {
 }
 
 def split_and_clean(text: str) -> list[str]:
-    text = re.sub(r"https?://\S+|www\.\S+", "", text)
-    words = re.split(r"\W+", text)
+    text = sub(r"https?://\S+|www\.\S+", "", text)
+    words = split(r"\W+", text)
     cleaned_words = list()
     for word in words:
         buffer = word.lower()

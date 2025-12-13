@@ -1,22 +1,60 @@
+from datetime import datetime, time
 from random import randint
 
-from telegram import Update, InlineKeyboardButton, \
-    InlineKeyboardMarkup
+from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import ContextTypes
 
-from core.analysis.messages import Messages
-from core.IO.handle_functions import skip_filtered_updates, register_command, \
-    register_callback_handler
-from core.data_access.database import access_point, DataType
+from core.analysis import Messages
+from core.data_access import DataType, access_point
+
+from .handler_utils import register_callback_handler, skip_filtered_updates, \
+    register_command, status_check, argument_check
 
 top_arguments = {
-    "curse" : (Messages.TOP_CURSE, DataType.CURSES, False, Messages.TOP_CURSE_EVERYONE_IS_POLITE),
-    "curse_delta" : (Messages.TOP_CURSE_REFRESH, DataType.CURSES_DELTA, False, Messages.REGULAR_TOP_ALL_POLITE),
-    "troll" : (Messages.TOP_TROLLING, DataType.TROLLS, False, Messages.TOP_TROLLING_NO_CLOWN),
-    "shots" : (Messages.TOP_SHOTS, DataType.MAX_SHOTS, True, Messages.TOP_SHOTS_EVERYONE_ARE_ALIVE)
+    "curse" : (
+        Messages.TOP_CURSE,
+        (DataType.CURSES,),
+        False,
+        Messages.TOP_CURSE_EVERYONE_IS_POLITE,
+        lambda entry: entry,
+        lambda entry: (entry[2], entry[0])
+    ),
+    "curse_delta" : (
+        Messages.TOP_CURSE_REFRESH,
+        (DataType.CURSES_DELTA,),
+        False,
+        Messages.REGULAR_TOP_ALL_POLITE,
+        lambda entry: entry,
+        lambda entry: (entry[2], entry[0])
+    ),
+    "curse_percentage" : (
+        Messages.TOP_CURSE,
+        (DataType.CURSES, DataType.MESSAGE_COUNTER),
+        False,
+        Messages.TOP_CURSE_EVERYONE_IS_POLITE,
+        lambda entry: (entry[0], entry[1], entry[2] / entry[3]),
+        lambda entry: (entry[2] / entry[3], entry[0])
+    ),
+    "troll" : (
+        Messages.TOP_TROLLING,
+        (DataType.TROLLS,),
+        False,
+        Messages.TOP_TROLLING_NO_CLOWN,
+        lambda entry: entry,
+        lambda entry: (entry[2], entry[0])
+    ),
+    "shots" : (
+        Messages.TOP_SHOTS,
+        (DataType.MAX_SHOTS,),
+        True,
+        Messages.TOP_SHOTS_EVERYONE_ARE_ALIVE,
+        lambda entry: entry,
+        lambda entry: (entry[2], entry[0])
+    )
 }
 
 top_buttons = InlineKeyboardMarkup([
+    [InlineKeyboardButton("Проклятия (коэффициент)", callback_data="curse_percentage")],
     [InlineKeyboardButton("Проклятия", callback_data="curse"), InlineKeyboardButton("Проклятия (за период)", callback_data="curse_delta")],
     [InlineKeyboardButton("Троллинг", callback_data="troll"), InlineKeyboardButton("Выстрелы", callback_data="shots")]
 ])
@@ -24,19 +62,21 @@ top_buttons = InlineKeyboardMarkup([
 @register_callback_handler(lambda query: query in top_arguments.keys())
 @skip_filtered_updates
 async def top_clicked_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    current_parameters = top_arguments[update.callback_query.data]
+    (start_message, data_types,
+     in_reverse, nothing_message,
+     map_lambda, sort_lambda) = top_arguments[update.callback_query.data]
 
-    message = current_parameters[0]
-    top = sorted(
+    message = start_message
+    top = list(map(map_lambda, sorted(
         access_point.get_data_from_chat(
             update.effective_chat.id,
-            [DataType.USER_ID, DataType.USER_NAME, current_parameters[1]],
+            [DataType.USER_ID, DataType.USER_NAME, *data_types],
             None,
-            [current_parameters[1]], True,
+            [*data_types], True,
             False
         ),
-        key=lambda x: (x[2], x[0]), reverse=current_parameters[2]
-    )
+        key=sort_lambda, reverse=in_reverse
+    )))
 
     index = 1
     summ = 0
@@ -47,17 +87,51 @@ async def top_clicked_handler(update: Update, context: ContextTypes.DEFAULT_TYPE
         summ += top[i][2]
         index += 1
     try:
-        if message == current_parameters[0]:
+        if message == start_message:
             await update.callback_query.edit_message_text(
-                current_parameters[3],
+                nothing_message,
                 reply_markup=top_buttons
             )
         else:
-            message += Messages.TOP_RESULT.format(summ)
+            message += Messages.TOP_RESULT.format(round(summ, 2))
             await update.callback_query.edit_message_text(
                 message,
                 reply_markup=top_buttons
             )
+    except Exception as e:
+        pass
+
+async def last_top_before_reset(update: Update, top_type: str):
+    (start_message, data_types,
+     in_reverse, nothing_message,
+     map_lambda, sort_lambda) = top_arguments[update.callback_query.data]
+
+    message = start_message
+    top = list(map(map_lambda, sorted(
+        access_point.get_data_from_chat(
+            update.effective_chat.id,
+            [DataType.USER_ID, DataType.USER_NAME, *data_types],
+            None,
+            [*data_types], True,
+            False
+        ),
+        key=sort_lambda, reverse=in_reverse
+    )))
+
+    index = 1
+    summ = 0
+    for i in range(len(top)):
+        if top[i][2] == 0:
+            continue
+        message += Messages.TOP_ENTRY.format(index, top[i][1], top[i][2])
+        summ += top[i][2]
+        index += 1
+    try:
+        if message == start_message:
+            await update.message.reply_text(nothing_message)
+        else:
+            message += Messages.TOP_RESULT.format(round(summ, 2))
+            await update.message.reply_text(message)
     except Exception as e:
         pass
 
@@ -117,17 +191,43 @@ async def all_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     message += Messages.THANKS_FOR_ALERT
     await update.message.reply_text(message)
 
+
+@skip_filtered_updates
+async def lull_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    now = datetime.now()
+    week_day = now.weekday()
+    day_time = now.time()
+
+    if time(0) <= day_time < time(3):
+        match week_day:
+            case 0: await update.message.reply_text("Лучше иди спать, начало недели уже наступило.")
+            case 1: await update.message.reply_text("Середина недели пока не наступила, давай шуруй спать.")
+            case 2: await update.message.reply_text("Да, среда - маленькая пятница, но спать тоже надо.")
+            case 3: await update.message.reply_text("Родной, уже четверг наступил, иди спи.")
+            case 4: await update.message.reply_text("Давай, сегодня последний день из будней на этой неделе, иди спать.")
+            case _: await update.message.reply_text("Родной, это выходной, делай что хочешь.")
+        # await update.message.reply_text("Ну, лучше поздно, чем никогда. Спокойной ночи.")
+    elif time(3) <= day_time < time(6):
+        match week_day:
+            case 0: await update.message.reply_text("Лучше иди спать, начало недели уже наступило.")
+            case 1: await update.message.reply_text("Середина недели пока не наступила, давай шуруй спать.")
+            case 2: await update.message.reply_text("Да, среда - маленькая пятница, но спать тоже надо.")
+            case 3: await update.message.reply_text("Родной, уже четверг наступил, иди спи.")
+            case 4: await update.message.reply_text("🫡")
+            case _: await update.message.reply_text("Родной, это выходной, делай что хочешь.")
+        # await update.message.reply_text("Тут уже лучше дождаться утра, чем спать. Давай, держись.")
+    elif time(6) <= day_time < time(18):
+        await update.message.reply_text("Ты точно сейчас спать хочешь?")
+    elif time(18) <= day_time < time(22):
+        await update.message.reply_text("Чем раньше сон, тем раньше утро! Спокойной ночи!")
+    else:
+        await update.message.reply_text("Спокойной ночи.")
+
 @register_command(2, "Изменяет количество обсценной лексики указанного пользователя на указанное число")
+@status_check
 @skip_filtered_updates
 async def change_curse_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    chat_member = await context.bot.get_chat_member(
-        update.message.chat_id, update.message.from_user.id
-    )
-    if chat_member.status not in {"administrator", "owner"}:
-        await update.message.reply_text(Messages.NOT_HIGH_ENOUGH_STATUS)
-        return
-
-    if context.args[0] and context.args[1]:
+    try:
         callback = access_point.change_curses_username(
             update.message.chat_id,
             context.args[0],
@@ -137,36 +237,28 @@ async def change_curse_command(update: Update, context: ContextTypes.DEFAULT_TYP
             await update.message.reply_text(Messages.CHANGE_CURSE_SUCCESS)
         else:
             await update.message.reply_text(Messages.CHANGE_CURSE_FAILURE)
+    except IndexError:
+        await update.message.reply_text(Messages.NOT_ENOUGH_ARGUMENTS)
 
-@register_command(2, "Сбрасывает рейтинг обсценной лексики и рейтинг троллинга от бота")
+@register_command(2, "Сбрасывает рейтинг обсценной лексики или рейтинг троллинга от бота")
+@status_check
 @skip_filtered_updates
 async def reset_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    chat_member = await context.bot.get_chat_member(
-        update.message.chat_id, update.message.from_user.id
-    )
-
-    if chat_member.status in {"administrator", "owner"} and context.args[0] in {"curses", "trolls"}:
-        access_point.reset_chat(update.message.chat_id, context.args[0])
-        await update.message.reply_text(Messages.RESET)
-    elif chat_member.status in {"administrator", "owner"}:
-        await update.message.reply_text(Messages.RESET_ACCIDENT)
-    else:
-        await update.message.reply_text(Messages.NOT_HIGH_ENOUGH_STATUS)
+    try:
+        if context.args[0] in {"curse", "troll"}:
+            await last_top_before_reset(update, context.args[0])
+            access_point.reset_chat(update.message.chat_id, f"{context.args[0]}s")
+            await update.message.reply_text(Messages.RESET)
+        else:
+            await update.message.reply_text(Messages.RESET_ACCIDENT)
+    except IndexError:
+        await update.message.reply_text(Messages.NOT_ENOUGH_ARGUMENTS)
 
 @register_command(2, "Изменяет ссылку для доната на указанный текст в аргументах")
+@argument_check(Messages.DONATE_CHANGE_NOTHING)
+@status_check
 @skip_filtered_updates
 async def set_donate_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    chat_member = await context.bot.get_chat_member(
-        update.message.chat_id, update.message.from_user.id
-    )
-    if chat_member.status not in {"administrator", "owner"}:
-        await update.message.reply_text(Messages.NOT_HIGH_ENOUGH_STATUS)
-        return
-
-    if not context.args:
-        await update.message.reply_text(Messages.DONATE_CHANGE_NOTHING)
-        return
-
     access_point.update_data_from_main_table(
         [DataType.DONATION_LINK],
         [DataType.CHAT_ID],
@@ -179,15 +271,9 @@ async def set_donate_command(update: Update, context: ContextTypes.DEFAULT_TYPE)
 Переключает разрешение на случайную отправку сообщений от бота.
 При включении бот будет со случайными промежутками от часа до 4 отправлять указанное сообщение.
 """)
+@status_check
 @skip_filtered_updates
 async def random_send_permit_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    chat_member = await context.bot.get_chat_member(
-        update.message.chat_id, update.message.from_user.id
-    )
-    if chat_member.status not in {"administrator", "owner"}:
-        await update.message.reply_text(Messages.NOT_HIGH_ENOUGH_STATUS)
-        return
-
     changed, permit = access_point.change_random_send_status(update.message.chat_id)
     if changed:
         result = "Нет" if permit == 1 else "Да"
@@ -196,19 +282,10 @@ async def random_send_permit_command(update: Update, context: ContextTypes.DEFAU
         await update.message.reply_text(Messages.RANDOM_SEND_FAILURE)
 
 @register_command(2, "Изменяет сообщение для случайной отправки на указанное в аргументах")
+@argument_check(Messages.RANDOM_SEND_MESSAGE_NOTHING)
+@status_check
 @skip_filtered_updates
 async def set_random_send_message_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    chat_member = await context.bot.get_chat_member(
-        update.message.chat_id, update.message.from_user.id
-    )
-    if chat_member.status not in {"administrator", "owner"}:
-        await update.message.reply_text(Messages.NOT_HIGH_ENOUGH_STATUS)
-        return
-
-    if not context.args:
-        await update.message.reply_text(Messages.RANDOM_SEND_MESSAGE_NOTHING)
-        return
-
     access_point.update_data_from_main_table(
         [DataType.RANDOM_SEND_MESSAGE],
         [DataType.CHAT_ID],
@@ -221,15 +298,9 @@ async def set_random_send_message_command(update: Update, context: ContextTypes.
 Переключает разрешение на троллинг от бота.
 При включении бот будет отмечать случайные сообщения реакцией 🤡
 """)
+@status_check
 @skip_filtered_updates
 async def trolling_permit_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    chat_member = await context.bot.get_chat_member(
-        update.message.chat_id, update.message.from_user.id
-    )
-    if chat_member.status not in {"administrator", "owner"}:
-        await update.message.reply_text(Messages.NOT_HIGH_ENOUGH_STATUS)
-        return
-
     changed, permit = access_point.change_trolling_status(update.message.chat_id)
     if changed:
         result = "Нет" if permit == 1 else "Да"
@@ -242,15 +313,9 @@ async def trolling_permit_command(update: Update, context: ContextTypes.DEFAULT_
 Переключает разрешение на регулярный отчет по обсценной лексике.
 При включении бот будет регулярно (каждые 4 часа) отправлять отчеты по мату внутри сообщений.
 """)
+@status_check
 @skip_filtered_updates
 async def regular_curse_update_permit_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    chat_member = await context.bot.get_chat_member(
-        update.message.chat_id, update.message.from_user.id
-    )
-    if chat_member.status not in {"administrator", "owner"}:
-        await update.message.reply_text(Messages.NOT_HIGH_ENOUGH_STATUS)
-        return
-
     changed, permit = access_point.change_regular_curse_update_status(update.message.chat_id)
     if changed:
         result = "Нет" if permit == 1 else "Да"
@@ -259,19 +324,10 @@ async def regular_curse_update_permit_command(update: Update, context: ContextTy
         await update.message.reply_text(Messages.REGULAR_TOP_FAILURE)
 
 @register_command(2, "Изменяет порог количества мата, от которого бот отправит уведомление.")
+@argument_check(Messages.CURSE_THRESHOLD_NOTHING)
+@status_check
 @skip_filtered_updates
 async def curse_threshold_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    chat_member = await context.bot.get_chat_member(
-        update.message.chat_id, update.message.from_user.id
-    )
-    if chat_member.status not in {"administrator", "owner"}:
-        await update.message.reply_text(Messages.NOT_HIGH_ENOUGH_STATUS)
-        return
-
-    if not context.args:
-        await update.message.reply_text(Messages.CURSE_THRESHOLD_NOTHING)
-        return
-
     try:
         counter = int(context.args[0])
         access_point.update_data_from_main_table(
