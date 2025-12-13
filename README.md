@@ -18,13 +18,6 @@
 Смотрите полный список команд, как и их описание и доступ в самом боте или handle_commands.py.
 
 ---
-### ***Псевдокоманды, которые доступны в боте***
-Набор некоторых подстрок, на которые реагирует бот.
-- ***/сурсе*** - отправляет случайный стикер, гифку или фото.
-- ***сосал*** - отправляет ответное "сосал"
-- ***Я*** и ***проиграл*** в одном сообщении - отправляет ответное "я проиграл"
-
----
 ### ***Стек технологий***
 - Python
   - python-telegram-bot
@@ -45,21 +38,27 @@
 ProfanityBot/
 ├── core/
 │   ├── analysis/
+│   │   ├── __init__.py
 │   │   ├── messages.py
 │   │   ├── speech_recognition.py
 │   │   └── textutil.py
 │   ├── data_access/
+│   │   ├── __init__.py
 │   │   ├── config.py
+│   │   ├── cursors.py
 │   │   ├── database.py
 │   │   └── logs.py
 │   ├── IO/
+│   │   ├── __init__.py
 │   │   ├── handle_commands.py
 │   │   ├── handle_functions.py
-│   │   └── main.py
-│   └── model_workshop/
-│       ├── <span style="color:yellow">profanity_pipeline</span>
-│       ├── <span style="color:yellow">whisper</span>
-│       └── model_training
+│   │   ├── handle_jobs.py
+│   │   └── handler_utils.py
+│   ├── model_workshop/
+│   │   ├── <span style="color:yellow">profanity_pipeline</span>
+│   │   ├── <span style="color:yellow">whisper</span>
+│   │   └── model_training.py
+│   └── main.py
 ├── <span style="color:red">data</span>
 ├── <span style="color:yellow">media</span>
 ├── <span style="color:yellow">media_nightly</span>

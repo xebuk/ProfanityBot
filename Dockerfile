@@ -21,18 +21,18 @@ run curl -fsSL https://ffmpeg.org/releases/ffmpeg-8.0.tar.gz | tar -xz && \
     && make -j$(nproc) \
     && make install
 
+copy requirements.txt .
+run --mount=type=cache,target=/root/.cache/pip \
+    pip install --prefix=/opt/pip -r requirements.txt
+
 from python:3.13-slim
 
 copy --from=builder /opt/ffmpeg /usr/local
+copy --from=builder /opt/pip /usr/local
 run ldconfig
 
 workdir /app
 
-run mkdir -p data media media_nightly core/IO core/data_access core/analysis
 copy . .
 
-run --mount=type=cache,target=/root/.cache/pip \
-    pip install -r requirements.txt \
-    && rm requirements.txt
-
-cmd ["python", "core/IO/main.py"]
+cmd ["python", "core/main.py"]

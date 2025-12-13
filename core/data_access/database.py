@@ -1,15 +1,8 @@
-import sqlite3
+from sqlite3 import connect
 from enum import Enum
 from typing import Any, LiteralString
-from atexit import register
 
-from core.data_access.logs import database_log
-
-def safe_chat_id(chat_id):
-    if isinstance(chat_id, int):
-        return abs(chat_id)
-    else:
-        return int("".join(c for c in str(chat_id) if c.isdigit()))
+from .logs import database_log
 
 class DataType(Enum):
     INSIDE_ID = ("chats", int, "inside_id")                                       # - число
@@ -27,6 +20,7 @@ class DataType(Enum):
 
     USER_ID = ("data", int, "user_id")                                            # - число
     USER_NAME = ("data", str, "user_name")                                        # - текст
+    MESSAGE_COUNTER = ("data", int, "message_counter")                            # - число
     CURSES = ("data", int, "curses")                                              # - число
     CURSES_DELTA = ("data", int, "curses_delta")                                  # - число
     TROLLS = ("data", int, "trolls")                                              # - число
@@ -97,7 +91,7 @@ class DatabaseManager:
     def __init__(self, db_path="./data/chats_with_curse.db"):
         self.db_path = db_path
         try:
-            self.conn = sqlite3.connect(db_path)
+            self.conn = connect(db_path)
             self.cursor = self.conn.cursor()
         except Exception as e:
             database_log.error(f"Ошибка инициализации базы данных - {e}")
@@ -127,7 +121,9 @@ class DatabaseManager:
     def shutdown(self):
         database_log.info("Запустил функцию выхода")
         self.cursor.close()
+        self.conn.commit()
         self.conn.close()
+        database_log.info("Завершил выполнение инструкций при выходе")
 
     def get_chat(self, chat_id: int):
         self.cursor.execute("select inside_id from chats where chat_id = ?",(chat_id,))
@@ -152,6 +148,7 @@ class DatabaseManager:
                     create table if not exists data_{inside_id} (
                         user_id integer unique primary key,
                         user_name text not null default 'stub',
+                        message_counter integer not null default 1,
                         curses integer not null default 0,
                         curses_delta integer not null default 0,
                         trolls integer not null default 0,
@@ -457,4 +454,3 @@ class DatabaseManager:
             return False, 0
 
 access_point = DatabaseManager()
-register(access_point.shutdown)
