@@ -26,3 +26,13 @@
 **/model_workshop/
 **/safe/
 **/data/*.tmp
+.env
+safe
+.venv
+.idea
+__pycache__
+.vscode
+.git
+.gitignore
+README.md
+model_workshop

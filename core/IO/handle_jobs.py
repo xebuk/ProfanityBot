@@ -1,3 +1,4 @@
+from datetime import datetime
 from queue import Empty
 from io import BytesIO
 from random import randint
@@ -10,17 +11,18 @@ from core.analysis import Messages, get_text_from_audio_stream
 from core.data_access import DEBUG, SHUTDOWN_SENTINEL, audio_download_queue, \
     audio_queue, text_queue, media_queue, DataType, access_point, job_log
 
-from .handle_functions import reply_to
-from .handler_utils import register_job, job_queue, register_job_repeating
+from .handle_functions import act_on_text
+from .handler_utils import register_job, job_queue, register_job_repeating, \
+    transform_event_data, two_hours_ago
 
 @register_job(randint(3600, 21600))
 async def random_send(context: ContextTypes.DEFAULT_TYPE):
     chat_ids = access_point.get_data_from_main_table(
         [DataType.CHAT_ID, DataType.RANDOM_SEND_MESSAGE],
-        [DataType.RANDOM_SEND_PERMIT],
+        [DataType.RANDOM_SEND_PERMIT, DataType.IS_ACTIVE],
         None,
         False, False,
-        1
+        1, 1
     )
     for chat_id, message in chat_ids:
         try:
@@ -31,47 +33,146 @@ async def random_send(context: ContextTypes.DEFAULT_TYPE):
 
     job_queue.run_once(random_send, randint(3600, 21600))
 
+async def construct_and_send_regular_top(context: ContextTypes.DEFAULT_TYPE, chat_id: int, top_type: str):
+    (start_message, nothing_message, something_message,
+     event_group, amount_command, in_reverse,
+     map_lambda, sort_lambda) = regular_top_arguments[top_type]
+
+    top = list(map(map_lambda, sorted(transform_event_data(
+        event_group,
+        access_point.pull_chat_wide_event(chat_id, amount_command, two_hours_ago)
+    ), key=sort_lambda, reverse=in_reverse)))
+
+    if not top:
+        await context.bot.send_message(chat_id=chat_id, text=nothing_message, disable_notification=True)
+        return
+
+    message = start_message
+
+    index = 0
+    summ = 0
+    previous_score = None
+
+    for i in range(len(top)):
+        if top[i][1] == 0:
+            continue
+        if top[i][1] != previous_score:
+            previous_score = top[i][1]
+            index += 1
+        message += Messages.TOP_ENTRY.format(
+            index, top[i][0], round(top[i][1], 2)
+        )
+        summ += top[i][1]
+
+    message = something_message + message
+    message += Messages.TOP_RESULT.format(summ)
+    await context.bot.send_message(chat_id=chat_id, text=message, disable_notification=True)
+
+regular_top_arguments = {
+    "curse" : (
+        Messages.TOP_CURSE_REFRESH,
+        Messages.TOP_CURSE_REFRESH_EVERYONE_IS_POLITE,
+        Messages.TOP_CURSE_REFRESH_TRAGEDY,
+        ("curse",),
+        "sum",
+        False,
+        lambda entry: (entry[1], entry[2]),
+        lambda entry: (entry[2], entry[0])
+    ),
+    "troll": (
+        Messages.TOP_TROLLING_REFRESH,
+        Messages.TOP_TROLLING_REFRESH_NO_CLOWN,
+        Messages.TOP_TROLLING_REFRESH_TRAGEDY,
+        ("troll",),
+        "sum",
+        False,
+        lambda entry: (entry[1], entry[2]),
+        lambda entry: (entry[2], entry[0])
+    ),
+    "shot_at": (
+        Messages.TOP_SHOT_REFRESH,
+        Messages.TOP_SHOT_REFRESH_CLEAR_GAUZE,
+        Messages.TOP_SHOT_REFRESH_TRAGEDY,
+        ("shot_at",),
+        "sum",
+        False,
+        lambda entry: (entry[1], entry[2]),
+        lambda entry: (entry[2], entry[0])
+    )
+}
+
+regular_top_order = ["curse", "troll", "shot_at"]
+
 @register_job_repeating(7200)
 async def regular_top(context: ContextTypes.DEFAULT_TYPE):
     chat_ids = access_point.get_data_from_main_table(
         [DataType.CHAT_ID],
-        [DataType.REGULAR_CURSE_UPDATE_PERMIT],
+        [DataType.REGULAR_UPDATE_PERMIT, DataType.IS_ACTIVE],
         None,
         False, False,
-        1
+        1, 1
     )
     for chat_id in chat_ids:
         await context.bot.send_message(chat_id=chat_id[0], text=Messages.REGULAR_TOP, disable_notification=True)
-        top = sorted(
-            access_point.get_data_from_chat(
-                chat_id[0],
-                [DataType.USER_ID, DataType.USER_NAME, DataType.CURSES_DELTA],
-                None,
-                [DataType.CURSES_DELTA], True,
-                False
-            ),
-            key=lambda x: (x[2], x[0])
-        )
-        if top[-1][2] == 0:
-            await context.bot.send_message(chat_id=chat_id[0], text=Messages.REGULAR_TOP_ALL_POLITE, disable_notification=True)
+        for top_type in regular_top_order:
+            await construct_and_send_regular_top(context, chat_id[0], top_type)
+
+@register_job_repeating(3600)
+async def one_hour(context: ContextTypes.DEFAULT_TYPE):
+    chats_and_their_timers = access_point.get_data_from_main_table(
+        [DataType.CHAT_ID, DataType.SLEEP_START_TIME],
+        [DataType.IS_ACTIVE, DataType.QUIET_NIGHT_MODE],
+        None,
+        False, False,
+        1, 1
+    )
+
+    for chat_id, sleep_start_time in chats_and_their_timers:
+        if sleep_start_time == "stub":
             continue
 
-        await context.bot.send_message(chat_id=chat_id[0], text=Messages.REGULAR_TOP_ALL_TRAGEDY, disable_notification=True)
-        message = Messages.TOP_CURSE_REFRESH
+        delta = datetime.now() - datetime.strptime(sleep_start_time, "%Y-%m-%d %H:%M:%S.%f")
+        if delta.total_seconds() // 3600 < 10:
+            continue
 
-        index = 1
-        summ = 0
-        for i in range(len(top)):
-            if top[i][2] == 0:
-                continue
-            message += Messages.TOP_ENTRY.format(index, top[i][1], top[i][2])
-            summ += top[i][2]
-            index += 1
+        access_point.update_data_from_main_table(
+            [DataType.QUIET_NIGHT_MODE],
+            [DataType.CHAT_ID],
+            0, chat_id
+        )
 
-            access_point.change_curses_userid(chat_id[0], top[i][0], top[i][2], None)
-        message += Messages.TOP_RESULT.format(summ)
-        await context.bot.send_message(chat_id=chat_id[0], text=message, disable_notification=True)
-        access_point.reset_curses_delta(chat_id[0])
+        all_user_names = sorted(
+            access_point.get_data_from_chat(
+                chat_id,
+                [DataType.USER_NAME],
+                None,
+                None, False,
+                False
+            ),
+            key=lambda x: x[0].lower()
+        )
+
+        message = ""
+        for i in all_user_names:
+            message += f"{i[0]}\n"
+        message += Messages.GOOD_AWAKENING
+        await context.bot.send_message(chat_id=chat_id, text=message)
+
+    chat_ids = access_point.get_data_from_main_table(
+        [DataType.CHAT_ID],
+        [DataType.HIGH_NOON_SHOWDOWN_PERMIT, DataType.IS_ACTIVE],
+        None,
+        False, False,
+        1, 1
+    )
+
+    for chat_id in chat_ids:
+        access_point.update_data_from_chat(
+            chat_id[0],
+            [DataType.BULLET_POSSESSION],
+            None,
+            6
+        )
 
 @register_job_repeating(5)
 async def handle_audio_download_callback(context: ContextTypes.DEFAULT_TYPE):
@@ -100,7 +201,7 @@ async def handle_audio_callback(context: ContextTypes.DEFAULT_TYPE):
             job_log.info("Очередь текста на анализ закрыта")
             return
 
-        await reply_to(*entry)
+        await act_on_text(*entry)
     except Empty:
         pass
     except Exception as e:

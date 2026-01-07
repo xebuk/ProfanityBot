@@ -1,7 +1,9 @@
 from python:3.13-slim as builder
 
-run apt-get update && apt-get install -y \
-    build-essential nasm yasm pkg-config curl
+run apt-get update && apt-get install -y --no-install-recommends \
+    build-essential nasm yasm pkg-config curl \
+    && rm -rf /var/lib/apt/lists/*
+
 run curl -fsSL https://ffmpeg.org/releases/ffmpeg-8.0.tar.gz | tar -xz && \
     cd ffmpeg-8.0 && \
     ./configure \
@@ -19,7 +21,11 @@ run curl -fsSL https://ffmpeg.org/releases/ffmpeg-8.0.tar.gz | tar -xz && \
         --enable-static \
         --disable-shared \
     && make -j$(nproc) \
-    && make install
+    && make install \
+    && cd / \
+    && rm -rf /ffmpeg-8.0 \
+    && apt-get purge -y --auto-remove build-essential nasm yasm pkg-config curl \
+    && apt-get clean
 
 copy requirements.txt .
 run --mount=type=cache,target=/root/.cache/pip \

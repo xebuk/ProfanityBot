@@ -6,9 +6,6 @@ data
 __pycache__
 .vscode
 media*
-wheelhouse
 core/model_workshop/*.txt
 core/model_workshop/*.joblib
-whisper
 profanity_pipeline
-image_to_text

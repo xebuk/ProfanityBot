@@ -1,3 +1,4 @@
+import datetime
 from sqlite3 import connect
 from enum import Enum
 from typing import Any, LiteralString
@@ -5,27 +6,37 @@ from typing import Any, LiteralString
 from .logs import database_log
 
 class DataType(Enum):
-    INSIDE_ID = ("chats", int, "inside_id")                                       # - число
-    CHAT_ID = ("chats", int, "chat_id")                                           # - число
-    IS_ACTIVE = ("chats", int, "is_active")                                       # - 0 или 1
-    PRIVACY = ("chats", int, "privacy")                                           # - 0 или 1
-    CHAT_NAME = ("chats", str, "chat_name")                                       # - текст
-    DONATION_LINK = ("chats", str, "donation_link")                               # - текст
-    RANDOM_SEND_PERMIT = ("chats", int, "random_send_permit")                     # - 0 или 1
-    RANDOM_SEND_MESSAGE = ("chats", str, "random_send_message")                   # - текст
-    TROLLING_PERMIT = ("chats", int, "trolling_permit")                           # - 0 или 1
-    REGULAR_CURSE_UPDATE_PERMIT = ("chats", int, "regular_curse_update_permit")   # - 0 или 1
-    CURSE_THRESHOLD = ("chats", int, "curse_threshold")                           # - число
-    QUIET_MODE = ("chats", int, "quiet_mode")                                     # - 0 или 1
+    INSIDE_ID = ("chats", int, "inside_id", "nu", 0)                                                       # - число
+    CHAT_ID = ("chats", int, "chat_id", "nu", 0)                                                           # - число
+    IS_ACTIVE = ("chats", int, "is_active", "nd", 1)                                                       # - 0 или 1
+    PRIVACY = ("chats", int, "privacy", "nd", 1)                                                           # - 0 или 1
+    QUIET_MODE = ("chats", int, "quiet_mode", "nd", 1)                                                     # - 0 или 1
 
-    USER_ID = ("data", int, "user_id")                                            # - число
-    USER_NAME = ("data", str, "user_name")                                        # - текст
-    MESSAGE_COUNTER = ("data", int, "message_counter")                            # - число
-    CURSES = ("data", int, "curses")                                              # - число
-    CURSES_DELTA = ("data", int, "curses_delta")                                  # - число
-    TROLLS = ("data", int, "trolls")                                              # - число
-    CURRENT_SHOTS = ("data", int, "current_shots")                                # - число
-    MAX_SHOTS = ("data", int, "max_shots")                                        # - число
+    CHAT_NAME = ("chats", str, "chat_name", "nd", "stub")                                                  # - текст
+
+    RANDOM_SEND_PERMIT = ("chats", int, "random_send_permit", "nd", 0)                                     # - 0 или 1
+    TROLLING_PERMIT = ("chats", int, "trolling_permit", "nd", 0)                                           # - 0 или 1
+    REGULAR_UPDATE_PERMIT = ("chats", int, "regular_update_permit", "nd", 0)                               # - 0 или 1
+    HIGH_NOON_SHOWDOWN_PERMIT = ("chats", int, "high_noon_showdown_permit", "nd", 0)                       # - 0 или 1
+    QUIET_NIGHT_MODE = ("chats", int, "quiet_night_mode", "nd", 0)                                         # - 0 или 1
+
+    DONATION_LINK = ("chats", str, "donation_link", "nd", "stub")                                          # - текст
+    CURSE_THRESHOLD = ("chats", int, "curse_threshold", "nd", 2)                                           # - число
+    RANDOM_SEND_MESSAGE = ("chats", str, "random_send_message", "nd", "stub")                              # - текст
+    SLEEP_START_TIME = ("chats", str, "sleep_start_time", "nd", "stub")                                    # - текст (время)
+    SHOOT_BOT_EASTER_EGG = ("chats", str, "shoot_bot_easter_egg", "nd", "stub")                            # - текст
+
+
+    USER_ID = ("data_number_pattern", int, "user_id", "nu", 0)                                             # - число
+    USER_NAME = ("data_number_pattern", str, "user_name", "nd", "stub")                                    # - текст
+    CURRENT_SHOTS = ("data_number_pattern", int, "current_shots", "nd", 0)                                 # - число
+    BULLET_POSSESSION = ("data_number_pattern", int, "bullet_possession", "nd", 0)                         # - 0 или 1
+
+
+    EVENT_TIME = ("log_book_number_pattern", str, "event_time", "n", "stub")                               # - текст (время)
+    USER_ID_EVENT = ("log_book_number_pattern", int, "user_id", "n", 0)                                    # - число
+    EVENT_TYPE = ("log_book_number_pattern", str, "event_type", "n", "stub")                               # - текст
+    AMOUNT = ("log_book_number_pattern", int, "amount", "n", 0)                                            # - число
 
     @property
     def table(self):
@@ -38,6 +49,62 @@ class DataType(Enum):
     @property
     def cell(self):
         return self.value[2]
+
+    @property
+    def modifiers(self):
+        return self.value[3]
+
+    @property
+    def default(self):
+        return self.value[4]
+
+type_mapping = {
+    int: "integer",
+    str: "text",
+    float: "real",
+    bytes: "blob"
+}
+
+def construct_table(table: str) -> str:
+    table_list: list[tuple[str, str, str]] = list()
+
+    for item in DataType:
+        table_name, data_type, column_name, parameters, default_value = item.value
+
+        if table_name != table:
+            continue
+
+        sql_type = type_mapping.get(data_type, "text")
+        auxiliary_parameters = list()
+
+        if parameters.find("n") != -1:
+            auxiliary_parameters.append("not null")
+
+        if parameters.find("u") != -1:
+            auxiliary_parameters.append("unique")
+
+        if parameters.find("d") != -1:
+            if isinstance(default_value, str):
+                formatted_default = f"'{default_value}'"
+            else:
+                formatted_default = str(default_value)
+
+            auxiliary_parameters.append(f"default {formatted_default}")
+
+        table_list.append((column_name, sql_type, " ".join(auxiliary_parameters)))
+
+    column_definitions = []
+    for column in table_list:
+        col_name, sql_type, default_val = column
+        column_definitions.append(
+            f"    {col_name} {sql_type} {default_val}"
+        )
+
+    column_sql = ",\n".join(column_definitions)
+    query = f"""create table if not exists {table} (
+{column_sql}
+)"""
+    return query
 
 def construct_select(
         table: str,
@@ -97,22 +164,7 @@ class DatabaseManager:
             database_log.error(f"Ошибка инициализации базы данных - {e}")
             raise e
         try:
-            self.cursor.execute("""
-                create table if not exists chats (
-                    inside_id integer not null unique primary key,
-                	chat_id	integer not null unique primary key,
-                	is_active integer not null default 1,
-                	privacy integer not null default 1,
-                	chat_name text default 'stub',
-                	donation_link text default 'stub',
-                	random_send_permit integer not null default 0,
-                	random_send_message text not null default 'stub',
-                	trolling_permit integer not null default 0,
-                	regular_curse_update_permit integer not null default 0,
-                	curse_threshold integer default 2,
-                	quiet_mode integer not null default 1
-                )
-            """)
+            self.cursor.execute(construct_table("chats"))
             self.conn.commit()
         except Exception as e:
             database_log.error(f"Ошибка инициализации таблицы чата: {e}")
@@ -144,18 +196,14 @@ class DatabaseManager:
                 self.conn.commit()
 
                 inside_id = self.get_chat(chat_id)
-                self.cursor.execute(f"""
-                    create table if not exists data_{inside_id} (
-                        user_id integer unique primary key,
-                        user_name text not null default 'stub',
-                        message_counter integer not null default 1,
-                        curses integer not null default 0,
-                        curses_delta integer not null default 0,
-                        trolls integer not null default 0,
-                        current_shots integer not null default 0,
-                        max_shots integer not null default 0
-                    )
-                """)
+                self.cursor.execute(
+                    construct_table("data_number_pattern")
+                    .replace("number_pattern", str(inside_id))
+                )
+                self.cursor.execute(
+                    construct_table("log_book_number_pattern")
+                    .replace("number_pattern", str(inside_id))
+                )
             else:
                 self.cursor.execute(
                     "update chats set is_active = 1 where chat_id = ?",
@@ -299,6 +347,58 @@ class DatabaseManager:
 
         self.conn.commit()
 
+    def get_users(self, chat_id: int):
+        try:
+            inside_id = self.get_chat(chat_id)
+
+            self.cursor.execute(f"""
+                select user_id from data_{inside_id}
+            """)
+
+            return self.cursor.fetchall()
+        except Exception as e:
+            database_log.error(f"Ошибка при получении данных о пользователях: {e}")
+
+    def register_event(self, chat_id: int, user_id: int, event_type: str, amount: int):
+        current_time = datetime.datetime.now().isoformat(
+            sep=' ',
+            timespec='microseconds'
+        )
+
+        try:
+            inside_id = self.get_chat(chat_id)
+
+            self.cursor.execute(f"""
+                insert into log_book_{inside_id} (event_time, user_id, event_type, amount)
+                values (?, ?, ?, ?)
+            """, (current_time, user_id, event_type, amount))
+
+            self.conn.commit()
+            return True
+        except Exception as e:
+            database_log.error(f"Ошибка при регистрации ивента: {e}")
+            return False
+
+    def pull_chat_wide_event(self, chat_id: int, command: str, delta: datetime.timedelta):
+        from_when = (datetime.datetime.now() - delta).isoformat(
+            sep=' ',
+            timespec='microseconds'
+        )
+
+        try:
+            inside_id = self.get_chat(chat_id)
+
+            self.cursor.execute(f"""
+                select lb.user_id, d.user_name, lb.event_type, {command}(lb.amount) from log_book_{inside_id} lb
+                join data_{inside_id} d on d.user_id = lb.user_id
+                where lb.event_time >= ?
+                group by lb.user_id, d.user_name, lb.event_type
+            """, (from_when,))
+
+            return self.cursor.fetchall()
+        except Exception as e:
+            database_log.error(f"Ошибка при выборке ивентов по всему чату: {e}")
+
     def add_or_update_name(self, chat_id: int, user_id: int, new_name: str):
         try:
             inside_id = self.get_chat(chat_id)
@@ -313,101 +413,52 @@ class DatabaseManager:
             database_log.error(f"Ошибка в изменении имени пользователя: {e}")
             self.add_new_chat(chat_id)
 
-    def change_curses_userid(self, chat_id: int, user_id: int, curses: int, user_name: str | None, delta=False):
-        try:
-            inside_id = self.get_chat(chat_id)
-            curse_to_edit = "curses_delta" if delta else "curses"
-
-            if user_name is None:
-                self.cursor.execute(f"""
-                    insert into data_{inside_id} (user_id, {curse_to_edit}) values (?, ?)
-                    on conflict (user_id) do update set {curse_to_edit} = {curse_to_edit} + ?
-                """, (user_id, curses, curses))
-            else:
-                self.cursor.execute(f"""
-                    insert into data_{inside_id} (user_id, user_name, {curse_to_edit}) values (?, ?, ?)
-                    on conflict (user_id) do update set {curse_to_edit} = {curse_to_edit} + ?, user_name = ?
-                """, (user_id, user_name, curses, curses, user_name))
-
-            self.conn.commit()
-        except Exception as e:
-            database_log.error(f"Ошибка при увеличении счётчика мата через user_id: {e}")
-            self.add_new_chat(chat_id)
-
     def change_curses_username(self, chat_id: int, user_name: str, curses: int):
         try:
             inside_id = self.get_chat(chat_id)
             self.cursor.execute(
-                f"update data_{inside_id} set curses = curses + ? where user_name = ?",
-                (curses, user_name)
+                f"update data_{inside_id} set curses = curses + ?, word_counter_curses = word_counter_curses + ? where user_name = ?",
+                (curses, curses, user_name)
             )
 
             self.conn.commit()
             return True
         except Exception as e:
-            database_log.error(f"Ошибка при увеличении счётчика мата через user_name: {e}")
+            database_log.error(f"Ошибка при изменении счётчика мата через user_name: {e}")
             self.add_new_chat(chat_id)
             return False
 
-    def change_trolls(self, chat_id: int, user_id: int, user_name: str | None):
+    def reset_event(self, chat_id: int, event_type: str):
         try:
             inside_id = self.get_chat(chat_id)
 
-            if user_name is None:
-                self.cursor.execute(f"""
-                    insert into data_{inside_id} (user_id, trolls) values (?, 1)
-                    on conflict (user_id) do update set trolls = trolls + 1
-                """, (user_id,))
-            else:
-                self.cursor.execute(f"""
-                    insert into data_{inside_id} (user_id, user_name, trolls) values (?, ?, 1)
-                    on conflict (user_id) do update set trolls = trolls + 1, user_name = ?
-                """, (user_id, user_name, user_name))
+            self.cursor.execute(f"""
+                delete from data_{inside_id} where event_type = ?
+            """, (event_type,))
 
             self.conn.commit()
         except Exception as e:
-            database_log.error(f"Ошибка при увеличении счётчика мата через user_id: {e}")
+            database_log.error(f"Ошибка при попытке очистки ивента типа {event_type}: {e}")
             self.add_new_chat(chat_id)
 
-    def change_shots(self, chat_id: int, user_id: int, got_shot: bool):
+    def reset_shots(self, chat_id: int):
         try:
             inside_id = self.get_chat(chat_id)
-
-            if not got_shot:
-                self.cursor.execute(
-                    f"update data_{inside_id} set current_shots = current_shots + 1 where user_id = ?",
-                    (user_id,)
-                )
-                self.cursor.execute(
-                    f"update data_{inside_id} set max_shots = current_shots where user_id = ? and current_shots > max_shots",
-                    (user_id,)
-                )
-            else:
-                self.cursor.execute(
-                    f"update data_{inside_id} set current_shots = 0 where user_id = ?",
-                    (user_id,)
-                )
-
+            self.cursor.execute(f"update data_{inside_id} set current_shots = 0")
+            self.cursor.execute(f"""
+                delete from data_{inside_id} where event_type = N'shot_fail'
+            """)
             self.conn.commit()
         except Exception as e:
-            database_log.error(f"Ошибка при изменении счётчика выстрелов: {e}")
+            database_log.error(f"Ошибка при сбросе счетчика стрельбы: {e}")
             self.add_new_chat(chat_id)
 
-    def reset_curses_delta(self, chat_id: int):
-        try:
-            inside_id = self.get_chat(chat_id)
-            self.cursor.execute(f"update data_{inside_id} set curses_delta = 0")
-            self.conn.commit()
-        except Exception as e:
-            database_log.error(f"Ошибка при сбросе дельты счетчика мата: {e}")
-            self.add_new_chat(chat_id)
-
-    def change_random_send_status(self, chat_id: int):
+    def change_status(self, chat_id: int, what_permit: str):
         try:
             inside_id = self.get_chat(chat_id)
 
             self.cursor.execute(
-                "update chats set random_send_permit = not random_send_permit where inside_id = ? returning random_send_permit",
+                f"update chats set {what_permit} = not {what_permit} where inside_id = ? returning {what_permit}",
                 (inside_id,)
             )
             permit = self.cursor.fetchone()[0]
@@ -415,41 +466,7 @@ class DatabaseManager:
             self.conn.commit()
             return True, permit
         except Exception as e:
-            database_log.error(f"Ошибка при попытке изменения статуса случайной отправки для чата: {e}")
-            self.add_new_chat(chat_id)
-            return False, 0
-
-    def change_trolling_status(self, chat_id: int):
-        try:
-            inside_id = self.get_chat(chat_id)
-
-            self.cursor.execute(
-                "update chats set trolling_permit = not trolling_permit where inside_id = ? returning trolling_permit",
-                (inside_id,)
-            )
-            permit = self.cursor.fetchone()[0]
-
-            self.conn.commit()
-            return True, permit
-        except Exception as e:
-            database_log.error(f"Ошибка при попытке изменения статуса троллинга для чата: {e}")
-            self.add_new_chat(chat_id)
-            return False, 0
-
-    def change_regular_curse_update_status(self, chat_id: int):
-        try:
-            inside_id = self.get_chat(chat_id)
-
-            self.cursor.execute(
-                "update chats set regular_curse_update_permit = not regular_curse_update_permit where inside_id = ? returning regular_curse_update_permit",
-                (inside_id,)
-            )
-            permit = self.cursor.fetchone()[0]
-
-            self.conn.commit()
-            return True, permit
-        except Exception as e:
-            database_log.error(f"Ошибка при попытке изменения статуса регулярного отчета по обсценной лексике для чата: {e}")
+            database_log.error(f"Ошибка при попытке изменения статуса разрешения типа {what_permit}: {e}")
             self.add_new_chat(chat_id)
             return False, 0
 

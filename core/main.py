@@ -4,15 +4,16 @@ from telegram.ext import Application
 
 from core.analysis import Messages
 from core.data_access import BOT_TOKEN, SILENT, graceful_exit, \
-    DataType, access_point
+    DataType, access_point, main_body_log
 from core.IO import *
 
 async def broadcast_to_all_chats(appl: Application, text: str):
     chat_ids = access_point.get_data_from_main_table(
         [DataType.CHAT_ID],
+        [DataType.QUIET_MODE, DataType.IS_ACTIVE],
         None,
-        None,
-        False, False
+        False, False,
+        0, 1
     )
 
     if not SILENT:
@@ -20,7 +21,9 @@ async def broadcast_to_all_chats(appl: Application, text: str):
             await appl.bot.send_message(chat_id=chat_id[0], text=text, disable_notification=True)
 
 async def on_start(appl: Application):
-    await set_up_job_queue(appl)
+    job_queue.set_application(appl)
+    await job_queue.start()
+    main_body_log.info("Очередь задач запущена")
 
     await appl.bot.set_my_commands(
         group_chat_commands,
@@ -46,8 +49,8 @@ app = (
     .build()
 )
 
-for handler in handlers_list:
-    app.add_handler(handler)
+app.add_handlers(preprocessing_handlers, group=0)
+app.add_handlers(handlers_list, group=1)
 
 if __name__ == "__main__":
     app.run_polling(

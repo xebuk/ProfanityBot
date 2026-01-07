@@ -1,4 +1,5 @@
 from os import getenv
+from pytz import timezone
 
 from .logs import config_log
 
@@ -13,6 +14,9 @@ if not NIGHTLY_BUILD_CHAT:
     NIGHTLY_BUILD_CHAT = 69
 else:
     NIGHTLY_BUILD_CHAT = int(NIGHTLY_BUILD_CHAT)
+
+SERVER_TZ = getenv("TZ")
+server_tz = timezone(SERVER_TZ)
 
 DEBUG = True
 SILENT = False

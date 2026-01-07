@@ -20,6 +20,7 @@ database_log = logging.getLogger("Database")
 cursor_log = logging.getLogger("Cursor")
 
 main_body_log = logging.getLogger("Main Body")
+prep_log = logging.getLogger("Preprocessing")
 utils_log = logging.getLogger("Utils")
 commands_log = logging.getLogger("Command")
 functions_log = logging.getLogger("Function")
